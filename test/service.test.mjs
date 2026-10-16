@@ -92,6 +92,21 @@ test("the first assembly of a session sees memory without awaiting prepare", () 
 	assert.match(text, /偶发失败/);
 });
 
+test("the synchronous fallback survives the service registry, not just the raw instance", () => {
+	// `section.js` reaches the service through `ctx.projectMemory`, which cordis
+	// wraps in a traceable proxy — so the receiver inside `injected` is not the
+	// instance the private method was declared on. A private call fails that
+	// brand check and takes the whole turn down, which is what a subagent hits:
+	// its first assembly runs before `prepare` can fill the snapshot, while a
+	// human-paced session usually has the snapshot already.
+	const { ctx } = service({
+		[path.join(ROOT, "bugs.md")]: "- 2026-10-16 [id=proxy] [status=active] [kind=bug]: 走服务注册表\n"
+	});
+	const text = ctx.projectMemory.injected(agent("sub"));
+	assert.match(text, /项目记忆/);
+	assert.match(text, /走服务注册表/);
+});
+
 test("the synchronous path caches, so it reads the files once per session", () => {
 	const bugs = path.join(ROOT, "bugs.md");
 	const { memory, fs } = service({ [bugs]: "- 2026-10-16 [id=a] [status=active] [kind=bug]: 第一版\n" });
