@@ -50,6 +50,13 @@ function service(initial = {}) {
 	return { ctx, fs, memory: new ProjectMemory(ctx, { fs }) };
 }
 
+/** A service with an explicit global root, for the cross-project layer. */
+function globalService(initial = {}) {
+	const fs = fakeFs(initial);
+	const ctx = new Context();
+	return { ctx, fs, memory: new ProjectMemory(ctx, { fs, globalRoot: "/g" }) };
+}
+
 test("the memory root is the .ai directory at the workspace root", () => {
 	const { memory } = service();
 	assert.equal(memory.root(agent()), ROOT);
@@ -235,4 +242,45 @@ test("a session without an id projects nothing rather than throwing", async () =
 	assert.equal(await memory.prepare({ session: {} }), "");
 	assert.equal(memory.injected({ session: {} }), "");
 	assert.equal(memory.injected(undefined), "");
+});
+
+test("global entries inject under their own labeled header, after the project section", () => {
+	const { memory } = globalService({
+		[path.join(ROOT, "bugs.md")]: "- 2026-10-16 [id=flaky] [status=active] [kind=bug]: 本项目偶发失败\n",
+		[path.join("/g", "memory.md")]: "- 2026-10-16 [id=pref] [status=active] [kind=fact]: 跨项目偏好\n"
+	});
+	const text = memory.injected(agent("both"));
+	assert.match(text, /项目记忆/);
+	assert.match(text, /全局记忆/);
+	assert.match(text, /本项目偶发失败/);
+	assert.match(text, /跨项目偏好/);
+	assert.ok(text.indexOf("本项目偶发失败") < text.indexOf("跨项目偏好"), "the project comes first");
+});
+
+test("writeGlobal lands in the global root while write stays in the project root", async () => {
+	const { memory, fs } = globalService();
+	const target = agent();
+	await memory.write(target, { file: "tasks.md", entry: { id: "p", kind: "task", conclusion: "项目任务", date: "2026-10-16" } });
+	await memory.writeGlobal(target, { file: "tasks.md", entry: { id: "g", kind: "task", conclusion: "全局任务", date: "2026-10-16" } });
+	assert.match(fs.files.get(path.join(ROOT, "tasks.md")), /项目任务/);
+	assert.ok(!fs.files.get(path.join(ROOT, "tasks.md")).includes("全局任务"));
+	assert.match(fs.files.get(path.join("/g", "tasks.md")), /全局任务/);
+});
+
+test("promote previews, then copies a project entry to the global layer", async () => {
+	const { memory, fs } = globalService({
+		[path.join(ROOT, "decisions.md")]: "- 2026-10-16 [id=retry] [status=active] [kind=decision]: 重试退避\n"
+	});
+	const target = agent();
+	const preview = await memory.promote(target, "retry");
+	assert.equal(preview.ok, true);
+	assert.equal(preview.applied, false);
+	assert.equal(preview.file, "decisions.md");
+	assert.equal(fs.files.has(path.join("/g", "decisions.md")), false, "preview writes nothing");
+	const applied = await memory.promote(target, "retry", { apply: true });
+	assert.equal(applied.ok, true);
+	assert.match(fs.files.get(path.join("/g", "decisions.md")), /\[id=retry\]/);
+	assert.match(fs.files.get(path.join("/g", "decisions.md")), /重试退避/);
+	const missing = await memory.promote(target, "nope", { apply: true });
+	assert.equal(missing.ok, false);
 });

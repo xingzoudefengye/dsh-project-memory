@@ -35,10 +35,10 @@ function fakeFs(initial = {}) {
 }
 
 /** A registered command plus the memory it edits. */
-function setup(initial = {}) {
+function setup(initial = {}, globalRoot = "/g") {
 	const fs = fakeFs(initial);
 	const ctx = new Context();
-	const memory = new ProjectMemory(ctx, { fs });
+	const memory = new ProjectMemory(ctx, { fs, globalRoot });
 	const registered = [];
 	apply({ commands: { register: (definition) => registered.push(definition) }, projectMemory: memory });
 	return { fs, memory, command: registered[0], agent: { session: { id: "s1", header: { cwd: path.join(WS, "src") } } } };
@@ -163,4 +163,30 @@ test("an unknown subcommand or flag is an error with usage", async () => {
 	const missingValue = await run(command, agent, " forget --id");
 	assert.equal(missingValue.kind, "error");
 	assert.match(missingValue.text, /--id needs a value/);
+});
+
+test("status --global reports the global layer, not the project", async () => {
+	const { command, agent } = setup({
+		...SEED,
+		[path.join("/g", "memory.md")]: "- 2026-10-16 [id=pref] [status=active] [kind=fact]: 跨项目偏好\n"
+	});
+	const result = await run(command, agent, " status --global");
+	assert.equal(result.kind, "success");
+	assert.match(result.text, /Global memory:/);
+	assert.match(result.text, /memory\.md: 1 entries/);
+});
+
+test("promote previews, then copies a project entry to the global layer", async () => {
+	const { command, agent, fs } = setup(SEED);
+	const preview = await run(command, agent, " promote --id budget");
+	assert.equal(preview.kind, "success");
+	assert.match(preview.text, /Would promote to global/);
+	assert.match(preview.text, /恢复预算/);
+	assert.equal(fs.files.has(path.join("/g", "tasks.md")), false, "preview writes nothing");
+	const applied = await run(command, agent, " promote --id budget --apply");
+	assert.equal(applied.kind, "success");
+	assert.match(applied.text, /Promoted to global/);
+	assert.match(fs.files.get(path.join("/g", "tasks.md")), /\[id=budget\]/);
+	const missing = await run(command, agent, " promote --id nothing-like-this --apply");
+	assert.equal(missing.kind, "error");
 });

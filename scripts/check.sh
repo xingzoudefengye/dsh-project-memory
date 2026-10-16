@@ -34,4 +34,10 @@ else
 	status=1
 fi
 
+if [ -d "$DSH_HOME/project-memory" ]; then
+	echo "ok:   the global layer exists ($DSH_HOME/project-memory)"
+else
+	echo "note: no global layer yet — create it with /memory init --global (optional, cross-project memory)"
+fi
+
 exit "$status"

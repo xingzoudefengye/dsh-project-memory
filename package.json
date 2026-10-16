@@ -1,6 +1,6 @@
 {
   "name": "dsh-project-memory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Bounded, git-committable project memory for DeepSeek Harness: five whitelisted .ai/ files with capacity budgets, structured entries, tiered retention, a stable prompt section, and explicit forgetting.",
   "type": "module",
   "main": "lib/service.js",

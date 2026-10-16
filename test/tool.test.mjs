@@ -36,10 +36,10 @@ function fakeFs(initial = {}) {
 }
 
 /** A registered tool plus the memory it writes to. */
-function setup(initial = {}) {
+function setup(initial = {}, globalRoot = "/g") {
 	const fs = fakeFs(initial);
 	const ctx = new Context();
-	const memory = new ProjectMemory(ctx, { fs });
+	const memory = new ProjectMemory(ctx, { fs, globalRoot });
 	const registered = [];
 	apply({ tools: { register: (definition) => registered.push(definition) }, projectMemory: memory });
 	return { fs, memory, tool: registered[0], agent: { session: { id: "s1", header: { cwd: path.join(WS, "src") } } } };
@@ -160,4 +160,27 @@ test("list reports capacity and counts", async () => {
 test("a tool call without an owning agent is an error, not a silent success", async () => {
 	const { tool } = setup();
 	await assert.rejects(() => tool.execute({ action: "list" }, {}), /owning agent session/);
+});
+
+test("scope=global writes to the global layer while the default stays project-local", async () => {
+	const { tool, agent, fs } = setup();
+	const result = await run(tool, agent, { action: "write", scope: "global", file: "memory.md", id: "pref", kind: "fact", conclusion: "跨项目偏好" });
+	assert.equal(result.ok, true);
+	assert.match(result.text, /Recorded pref in global memory\.md/);
+	assert.match(fs.files.get(path.join("/g", "memory.md")), /\[id=pref\]/);
+	assert.equal(fs.files.has(path.join(ROOT, "memory.md")), false, "the project layer is untouched");
+});
+
+test("read and list honor scope=global", async () => {
+	const { tool, agent } = setup({
+		[path.join("/g", "memory.md")]: "- 2026-10-16 [id=pref] [status=active] [kind=fact]: 跨项目偏好\n",
+		[path.join(ROOT, "memory.md")]: "- 2026-10-16 [id=local] [status=active] [kind=fact]: 本项目事实\n"
+	});
+	const scoped = await run(tool, agent, { action: "read", scope: "global" });
+	assert.match(scoped.text, /跨项目偏好/);
+	assert.ok(!scoped.text.includes("本项目事实"), "global read does not leak project entries");
+	const listed = await run(tool, agent, { action: "list", scope: "global" });
+	assert.match(listed.text, /Global memory at/);
+	const project = await run(tool, agent, { action: "read" });
+	assert.match(project.text, /本项目事实/);
 });
