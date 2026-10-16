@@ -23,6 +23,9 @@ function fakeFs(initial = {}) {
 		async read(target) {
 			return files.has(target) ? files.get(target) : null;
 		},
+		readSync(target) {
+			return files.has(target) ? files.get(target) : null;
+		},
 		async write(target, text) {
 			files.set(target, text);
 		},
@@ -75,6 +78,60 @@ test("an absent or empty memory directory projects nothing and does not throw", 
 	const target = agent();
 	assert.equal(await memory.prepare(target), "");
 	assert.equal(memory.injected(target), "");
+});
+
+test("the first assembly of a session sees memory without awaiting prepare", () => {
+	// Prompt sections are synchronous, so a session's very first assembly runs
+	// before an awaited prepare can finish. This is that assembly.
+	const { memory } = service({
+		[path.join(ROOT, "bugs.md")]: "- 2026-10-16 [id=flaky] [status=active] [kind=bug]: 偶发失败\n"
+	});
+	const target = agent();
+	const text = memory.injected(target);
+	assert.match(text, /项目记忆/);
+	assert.match(text, /偶发失败/);
+});
+
+test("the synchronous path caches, so it reads the files once per session", () => {
+	const bugs = path.join(ROOT, "bugs.md");
+	const { memory, fs } = service({ [bugs]: "- 2026-10-16 [id=a] [status=active] [kind=bug]: 第一版\n" });
+	const target = agent();
+	assert.match(memory.injected(target), /第一版/);
+	let reads = 0;
+	const original = fs.readSync;
+	fs.readSync = (where) => {
+		reads += 1;
+		return original(where);
+	};
+	assert.match(memory.injected(target), /第一版/);
+	assert.equal(reads, 0, "the second assembly reuses the frozen text");
+});
+
+test("the synchronous path degrades to empty on a port that cannot read synchronously", () => {
+	const fs = fakeFs({ [path.join(ROOT, "bugs.md")]: "- 2026-10-16 [id=a] [status=active] [kind=bug]: 甲\n" });
+	delete fs.readSync;
+	const memory = new ProjectMemory(new Context(), { fs });
+	assert.equal(memory.injected(agent()), "", "no throw, no section for this assembly");
+});
+
+test("the synchronous path never throws on an unreadable workspace", () => {
+	const fs = fakeFs();
+	fs.readSync = () => {
+		throw new Error("EACCES");
+	};
+	const memory = new ProjectMemory(new Context(), { fs });
+	assert.equal(memory.injected(agent()), "");
+});
+
+test("prepare and the synchronous path produce the same text", async () => {
+	const { memory } = service({
+		[path.join(ROOT, "decisions.md")]: "- 2026-10-16 [id=retry] [status=active] [kind=decision]: 重试退避\n"
+	});
+	const first = agent("sync-first");
+	const second = agent("async-first");
+	const viaSync = memory.injected(first);
+	const viaAsync = await memory.prepare(second);
+	assert.equal(viaSync, viaAsync);
 });
 
 test("prepare is idempotent, and force re-reads", async () => {
@@ -139,15 +196,18 @@ test("forget previews through the service and applies only when asked", async ()
 	assert.ok(!fs.files.get(bugs).includes("flaky"));
 });
 
-test("release drops the snapshot so the next session re-reads", async () => {
-	const { memory } = service({
-		[path.join(ROOT, "memory.md")]: "- 2026-10-16 [id=a] [status=active] [kind=fact]: 事实\n"
+test("release drops the snapshot so the next assembly rebuilds from the files", async () => {
+	const memoryFile = path.join(ROOT, "memory.md");
+	const { memory, fs } = service({
+		[memoryFile]: "- 2026-10-16 [id=a] [status=active] [kind=fact]: 第一版\n"
 	});
 	const target = agent();
 	await memory.prepare(target);
-	assert.notEqual(memory.injected(target), "");
+	assert.match(memory.injected(target), /第一版/);
+	fs.files.set(memoryFile, "- 2026-10-16 [id=a] [status=active] [kind=fact]: 第二版\n");
+	assert.match(memory.injected(target), /第一版/, "still frozen while the session lives");
 	memory.release(target);
-	assert.equal(memory.injected(target), "");
+	assert.match(memory.injected(target), /第二版/, "a rebuilt projection reads the current files");
 });
 
 test("the service registers itself on the context", () => {
