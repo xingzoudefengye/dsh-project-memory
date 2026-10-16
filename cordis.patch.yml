@@ -1,0 +1,27 @@
+# dsh-project-memory bundle patch.
+#
+# Four rows, deliberately separate so a deployment can mount the storage and
+# the prompt section without the model-facing tool, or the human command
+# without either:
+#
+#   service  ctx.projectMemory — where `.ai/` is, the frozen per-session
+#            projection, and the one write path everything else uses.
+#   section  the stable prompt section that renders that projection.
+#   tool     `project_memory` — what the model uses to record and read back.
+#   command  `/memory` — status, init, coarsen, and explicit forgetting.
+#
+# The bundle adds no background work and no model calls of its own: reading and
+# writing are filesystem operations, and nothing here schedules extraction.
+
+- insert:
+    - id: project-memory
+      name: 'dsh-project-memory/service'
+
+    - id: project-memory-section
+      name: 'dsh-project-memory/section'
+
+    - id: tool-project-memory
+      name: 'dsh-project-memory/tool'
+
+    - id: command-project-memory
+      name: 'dsh-project-memory/command'
