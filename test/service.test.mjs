@@ -5,8 +5,8 @@ import test from "node:test";
 import { parseMemoryFile } from "../lib/entries.js";
 import { ProjectMemory } from "../lib/service.js";
 
-/** Workspace root the fake port pretends to see. */
-const WS = "/ws";
+/** Workspace root the fake port pretends to see (resolved, so Windows agrees). */
+const WS = path.resolve("/ws");
 
 /** `.ai` directory under that root. */
 const ROOT = path.join(WS, ".ai");

@@ -5,8 +5,8 @@ import test from "node:test";
 import { ProjectMemory } from "../lib/service.js";
 import { apply } from "../lib/tool.js";
 
-/** Workspace root the fake port pretends to see. */
-const WS = "/ws";
+/** Workspace root the fake port pretends to see (resolved, so Windows agrees). */
+const WS = path.resolve("/ws");
 const ROOT = path.join(WS, ".ai");
 
 /**

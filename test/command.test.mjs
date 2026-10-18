@@ -5,7 +5,7 @@ import test from "node:test";
 import { apply } from "../lib/command.js";
 import { ProjectMemory } from "../lib/service.js";
 
-const WS = "/ws";
+const WS = path.resolve("/ws");
 const ROOT = path.join(WS, ".ai");
 
 /**
